@@ -13,9 +13,9 @@ class DemoSpider(scrapy.Spider):
             self.start_urls = [url]
 
     def start_requests(self):
-        for url in self.start_urls:
+        for _ in range(50):
             yield scrapy.Request(
-                url,
+                self.start_urls[0],
                 meta={
                     "stealth": {
                         "driver": "browser",
@@ -24,7 +24,17 @@ class DemoSpider(scrapy.Spider):
                     }
                 },
                 callback=self.parse,
+                dont_filter=True,
             )
 
     def parse(self, response):
-        print(response.text)
+        ldjson = response.xpath(
+            '//script[@type="application/ld+json" and @data-testid="product-list-script"]/text()'
+        ).get(default='{}')
+
+        return {
+            'ldjson': ldjson,
+            'flags': response.flags,
+            'content': response.text,
+            'status': response.status,
+        }
