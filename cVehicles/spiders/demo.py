@@ -3,14 +3,16 @@ import scrapy
 
 class DemoSpider(scrapy.Spider):
     name = "demo"
-    # start_urls = ["http://quotes.toscrape.com"]
-    start_urls = ["https://httpbin.org/ip"]
+    start_urls = ["https://ip.decodo.com/ip"]
     handle_httpstatus_list = [404, 403]
 
-    def __init__(self, url=None, *args, **kwargs):
+    def __init__(self, url=None, proxy=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if url:
             self.start_urls = [url]
+        self.proxy = ''
+        if proxy:
+            self.proxy = proxy
 
     def start_requests(self):
         for _ in range(50):
@@ -20,7 +22,8 @@ class DemoSpider(scrapy.Spider):
                     "stealth": {
                         "driver": "browser",
                         "headless": False,
-                        "rotate_proxy": True,
+                        "proxy": self.proxy,
+                        # "rotate_proxy": True,
                     }
                 },
                 callback=self.parse,
@@ -32,9 +35,11 @@ class DemoSpider(scrapy.Spider):
             '//script[@type="application/ld+json" and @data-testid="product-list-script"]/text()'
         ).get(default='{}')
 
-        return {
+        item = {
             'ldjson': ldjson,
             'flags': response.flags,
             'content': response.text,
             'status': response.status,
         }
+        print(item)
+        return item

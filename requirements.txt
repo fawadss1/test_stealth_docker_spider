@@ -1,4 +1,4 @@
 Scrapy==2.15.2
 botasaurus
-scrapy-stealth==0.6.6a9
+scrapy-stealth==0.6.8a1
 scrapinghub-entrypoint-scrapy>=0.8.0
