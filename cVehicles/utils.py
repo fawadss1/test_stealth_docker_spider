@@ -1,4 +1,3 @@
-from .settings import SIMPLE_PROXY
 from scrapy.exceptions import CloseSpider
 from email.mime.text import MIMEText
 from base64 import b64decode
@@ -16,11 +15,13 @@ from urllib.parse import urlparse, quote
 from concurrent.futures import ThreadPoolExecutor
 import threading
 from botocore.exceptions import ClientError
+from dotenv import load_dotenv
 
 # Global instances for connection reuse
 _s3_client = None
 _session = None
 _thread_local = threading.local()
+load_dotenv()
 
 
 def get_s3_client():
@@ -68,7 +69,6 @@ def check_image_exists(s3_client, bucket, key):
 def download_image_data(url, site=None, proxy=False, timeout=30):
     """Download image data with optimized settings."""
     session = get_requests_session()
-    proxies = SIMPLE_PROXY if proxy else None
     verify = not proxy
 
     try:
@@ -85,7 +85,6 @@ def download_image_data(url, site=None, proxy=False, timeout=30):
             response = session.get(
                 url,
                 stream=True,
-                proxies=proxies,
                 verify=verify,
                 timeout=timeout
             )
