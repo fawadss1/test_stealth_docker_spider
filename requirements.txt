@@ -1,3 +1,5 @@
 Scrapy==2.15.2
-scrapy-stealth==0.6.8a1
+scrapy-stealth==0.6.8b1
 scrapinghub-entrypoint-scrapy>=0.8.0
+boto3
+dotenv
