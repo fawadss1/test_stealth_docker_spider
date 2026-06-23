@@ -68,16 +68,25 @@ class RsSpider(scrapy.Spider):
         # "STEALTH_PROXIES": ["http://splq77vfo6:78HdqV2Xcx5cJfd_sv@dc.decodo.com:10000"]
     }
 
-    def __init__(self, url=None, sitemap_urls=None, chunk=None, meta_path=None, *args, **kwargs):
+    def __init__(self, url=None, sitemap_urls=None, chunk=None, meta_path=None,
+                 retry_failed=None, *args, **kwargs):
         super(RsSpider, self).__init__(*args, **kwargs)
         self.url = url
         self.sitemap_urls = sitemap_urls
         self.chunk = int(chunk) if chunk is not None else None
+        self.retry_failed = retry_failed
+        self.retry_mode = bool(retry_failed)
         self.sitemap_queue = []
+        self.retry_requests = []
         self.tracker = None
         self.failed_path = None
 
-        if self.chunk is not None:
+        if self.retry_mode:
+            # Re-crawl URLs from a failed_*.jsonl file. No tracker: the source
+            # sitemaps are already accounted for in meta; we only want output
+            # written and a fresh list of still-failing URLs.
+            self._setup_retry()
+        elif self.chunk is not None:
             all_sitemaps = self._load_chunk(self.chunk)
             meta_path = meta_path or os.path.join(PROJECT_ROOT, f'meta_chunk{self.chunk}.json')
             self.tracker = ProgressTracker(meta_path, chunk=self.chunk)
@@ -109,24 +118,108 @@ class RsSpider(scrapy.Spider):
             "stealth": {
                 "driver": "browser",
                 "headless": False,
-                "proxy": "https://user-rs_test_QUr1t-country-US:7RZYq_u_bmpdTk4f@dc.oxylabs.io:8000",
+                "static_assets_block": True,
+                # "proxy": "http://splq77vfo6:78HdqV2Xcx5cJfd_sv@dc.decodo.com:10000",
+                "proxy": "http://spcsx9p37l:8OJr_Fr8syyVotl00v@gate.decodo.com:7000",
+                # "proxy": "https://user-rs_test_QUr1t-country-US:7RZYq_u_bmpdTk4f@dc.oxylabs.io:8000",
             }
         }
         self.sitemap_proxy = {
             "stealth": {
                 "driver": "basic",
-                "proxy": "https://user-rs_test_QUr1t-country-US:7RZYq_u_bmpdTk4f@dc.oxylabs.io:8000",
+                # "proxy": "http://splq77vfo6:78HdqV2Xcx5cJfd_sv@dc.decodo.com:10000",
+                "proxy": "http://spcsx9p37l:8OJr_Fr8syyVotl00v@gate.decodo.com:7000",
+                # "proxy": "https://user-rs_test_QUr1t-country-US:7RZYq_u_bmpdTk4f@dc.oxylabs.io:8000",
             }
         }
 
     @staticmethod
     def _load_chunk(chunk):
         """Return the list of sitemap URLs for the given 1-based chunk index."""
-        with open(SITEMAPS_FILE, encoding='utf-8') as fh:
+        with open(SITEMAPS_FILE, 'r', encoding='utf-8') as fh:
             chunks = json.load(fh)['chunks']
         if not 1 <= chunk <= len(chunks):
             raise ValueError(f"chunk must be between 1 and {len(chunks)}, got {chunk}")
         return chunks[chunk - 1]
+
+    def _setup_retry(self):
+        """Load a failed_*.jsonl file into ``self.retry_requests``.
+
+        Drops ``discontinued`` URLs, de-duplicates, and skips URLs already
+        present in this chunk's output JSONL (succeeded on a later run). New
+        failures from the retry pass go to ``<name>_retry.jsonl`` so we never
+        append to the file we are reading.
+        """
+        src = self.retry_failed
+        if not os.path.isabs(src):
+            src = os.path.join(PROJECT_ROOT, src)
+        if not os.path.exists(src):
+            raise FileNotFoundError('Retry file not found: {}'.format(src))
+
+        base, _ext = os.path.splitext(src)
+        self.failed_path = base + '_retry.jsonl'
+
+        already_scraped = self._scraped_urls()
+
+        queued = {}  # url -> sitemap (last seen wins)
+        discontinued = set()
+        with open(src, 'r', encoding='utf-8') as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                u = rec.get('url')
+                if not u:
+                    continue
+                if rec.get('reason') == 'discontinued':
+                    discontinued.add(u)
+                    continue
+                queued[u] = rec.get('sitemap')
+
+        skipped_scraped = 0
+        for u, sitemap in queued.items():
+            if u in already_scraped:
+                skipped_scraped += 1
+                continue
+            self.retry_requests.append((u, sitemap))
+
+        only_discontinued = len(discontinued - set(queued))
+        logging.info(
+            'Retry mode: %d url(s) queued | skipped %d discontinued, %d already scraped. '
+            'New failures -> %s',
+            len(self.retry_requests), only_discontinued, skipped_scraped, self.failed_path,
+        )
+
+    def _scraped_urls(self):
+        """URLs already written to this chunk's output JSONL files."""
+        urls = set()
+        sub = 'chunk{}'.format(self.chunk) if self.chunk is not None else self.name
+        out_dir = os.path.join(PROJECT_ROOT, 'output', sub)
+        if not os.path.isdir(out_dir):
+            return urls
+        for fname in os.listdir(out_dir):
+            if not fname.endswith('.jsonl'):
+                continue
+            try:
+                with open(os.path.join(out_dir, fname), 'r', encoding='utf-8') as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            u = json.loads(line).get('url')
+                        except json.JSONDecodeError:
+                            continue
+                        if u:
+                            urls.add(u)
+            except OSError:
+                continue
+        logging.info('Retry mode: %d url(s) already in output dir %s', len(urls), out_dir)
+        return urls
 
     def _req_meta(self, **extra):
         """Build product-request meta from the browser proxy plus tracking keys."""
@@ -157,7 +250,15 @@ class RsSpider(scrapy.Spider):
             raise DontCloseSpider
 
     def start_requests(self):
-        if self.url:
+        if self.retry_mode:
+            if not self.retry_requests:
+                logging.info('Retry mode: nothing to re-crawl.')
+                return
+            for url, sitemap in self.retry_requests:
+                yield scrapy.Request(url, callback=self.parse, errback=self.errback,
+                                     meta=self._req_meta(sitemap=sitemap))
+
+        elif self.url:
             yield scrapy.Request(self.url, callback=self.parse, meta=self.proxy)
 
         elif self.chunk is not None or self.sitemap_urls:

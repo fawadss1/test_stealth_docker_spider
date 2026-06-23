@@ -19,7 +19,15 @@ STEALTH_PROXIES = [
 
 BROWSER_NO_SANDBOX = True
 
-BROWSER_EXECUTABLE_PATH = "C:\Program Files\BraveSoftware\Brave-Browser\Application\\brave.exe"
+BROWSER_STATIC_ASSETS_BLOCK = True
+
+BROWSER_PROXY_BYPASS_LIST = [
+    "brave.com",
+    "*.brave.com",
+    "*.googleusercontent.com",
+    "*.googleapis.com"
+]
+BROWSER_EXECUTABLE_PATH = r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
 # BROWSER_EXECUTABLE_PATH = "/usr/bin/brave-browser"
 
 REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"

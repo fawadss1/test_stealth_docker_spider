@@ -27,12 +27,17 @@ META_PATH = None
 # set SITEMAP_URLS to the url(s) below. When set, it takes priority over CHUNK.
 # Example: "https://uk.rs-online.com/uk_products_59.xml.gz"
 SITEMAP_URLS = None
+
+RETRY_FAILED = f"failed_chunk{CHUNK}.jsonl"
+
 # ===========================================================================
 
 
 def main():
     process = CrawlerProcess(get_project_settings())
-    if SITEMAP_URLS:
+    if RETRY_FAILED:
+        process.crawl(RsSpider, retry_failed=RETRY_FAILED, chunk=CHUNK)
+    elif SITEMAP_URLS:
         process.crawl(RsSpider, sitemap_urls=SITEMAP_URLS)
     else:
         process.crawl(RsSpider, chunk=CHUNK, meta_path=META_PATH)
